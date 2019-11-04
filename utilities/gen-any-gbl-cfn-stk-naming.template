@@ -1,0 +1,48 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "---"
+Parameters:
+  Owner:
+    Type: String
+    Default: General
+    AllowedValues:
+    - General
+    - Healthstar
+    - UhcTn
+    - AgpTn
+  Application:
+    Type: String
+    Default: any
+    AllowedValues:
+    - any
+    - evv
+    - agg
+Mappings:
+  MapOwner:
+    General:
+      ShortName: gen
+    Healthstar:
+      ShortName: hst
+    UhcTn:
+      ShortName: uht
+    AgpTn:
+      ShortName: agt
+  MapRegion:
+    us-east-2:
+      ShortName: tst
+    us-west-2:
+      ShortName: stg
+    us-east-1:
+      ShortName: prd
+Conditions:
+  Never: !Equals [ a, b ]
+Resources:
+  NullResource:
+    Type: Custom::Null
+    Condition: Never
+Outputs:
+  BaseName: 
+    Description: "Constructed Base Name"
+    Value: !Sub
+    - '${Owner}-${Application}-${Environment}'
+    - { Owner: !FindInMap [MapOwner, !Ref Owner, ShortName], Application: !Ref Application, Environment: !FindInMap [MapRegion, !Ref 'AWS::Region', ShortName] }

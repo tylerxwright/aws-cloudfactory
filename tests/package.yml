@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Runs a quick test
+Resources:
+  BaseName:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-2.amazonaws.com/hst-all-gbl-as3-bkt-cfm/6bb195b1a492f1bce701812cff43e25f.template
+      Parameters:
+        Owner: Healthstar
+        Application: agg
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Test Group
+      GroupName:
+        Fn::Sub:
+        - hello-${Name}-world
+        - Name:
+            Fn::GetAtt:
+            - BaseName
+            - Outputs.BaseName

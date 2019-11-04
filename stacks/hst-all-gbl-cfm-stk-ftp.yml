@@ -1,0 +1,381 @@
+# Deployment
+AWSTemplateFormatVersion: '2010-09-09'
+Description: A basic template for creating a Lambda-backed API Gateway for use as
+  a custom identity provider in AWS Transfer for SFTP. It authenticates against an
+  entry in AWS Secrets Manager of the format SFTP/username. Additionaly, the secret
+  must hold the key-value pairs for all user properties returned to AWS Transfer.
+  You can modify the Lambda function code to do something different after deployment.
+Parameters:
+  CreateServer:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Type: String
+    Description: Whether this stack creates a server internally or not. If a server is created internally,
+      the customer identity provider is automatically associated with it.
+    Default: true
+  SecretsManagerRegion:
+    Type: String
+    Description: (Optional) The region the secrets are stored in. If this value is not provided, the
+      region this stack is deployed in will be used. Use this field if you are deploying this stack in
+      a region where SecretsMangager is not available.
+    Default: ''
+  StackRegion:
+    Type: String
+    Description: Region the stack will live in. This will set all region specific resources to the
+      region configured
+    Default: us-east-2
+  EnvironmentShortName:
+    Description: The shortname for the environment this is deployed to. example tst  
+    Type: String
+    Default: tst
+Conditions:
+  CreateServer:
+    Fn::Equals:
+      - Ref: CreateServer
+      - 'true'
+  NotCreateServer:
+    Fn::Not:
+      - Condition: CreateServer
+  SecretsManagerRegionProvided:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: SecretsManagerRegion
+          - ''
+Resources:
+  TransferServer:
+    Type: AWS::Transfer::Server
+    Condition: CreateServer
+    Properties:
+      EndpointType: PUBLIC
+      IdentityProviderDetails:
+        InvocationRole:
+          Fn::GetAtt: TransferIdentityProviderRole.Arn
+        Url:
+          Fn::Join:
+            - ''
+            - - https://
+              - Ref: CustomIdentityProviderApi
+              - .execute-api.
+              - Ref: AWS::Region
+              - .amazonaws.com/
+              - Ref: ApiStage
+      IdentityProviderType: API_GATEWAY
+      LoggingRole:
+        Fn::GetAtt: CloudWatchLoggingRole.Arn
+  CloudWatchLoggingRole:
+    Description: IAM role used by Transfer to log API requests to CloudWatch
+    Type: AWS::IAM::Role
+    Condition: CreateServer
+    Properties:
+      RoleName: 
+        !Sub 'hstr-${EnvironmentShortName}-rol-ftp-cwa-log'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - transfer.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: 
+            !Sub 'hstr-${EnvironmentShortName}-pol-ftp-cwa-log'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource:
+                  Fn::Sub: '*'
+  CustomIdentityProviderApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: 
+        !Sub 'hstr-${EnvironmentShortName}-agw-get-user-config'
+      Description: API used for GetUserConfig requests
+      FailOnWarnings: true
+      EndpointConfiguration:
+        Types:
+        - REGIONAL
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        !Sub 'hstr-${EnvironmentShortName}-rol-lmb-execution'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: 
+          !Sub 'hstr-${EnvironmentShortName}-pol-ftp-smg-get'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - secretsmanager:GetSecretValue
+            Resource:
+              Fn::Sub:
+                - arn:aws:secretsmanager:${SecretsRegion}:${AWS::AccountId}:secret:SFTP/*
+                - SecretsRegion:
+                    Fn::If:
+                      - SecretsManagerRegionProvided
+                      - Ref: SecretsManagerRegion
+                      - Ref: AWS::Region
+  ApiCloudWatchLogsRole:
+    Description: IAM role used by API Gateway to log API requests to CloudWatch
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        !Sub 'hstr-${EnvironmentShortName}-rol-agw-cwa-log'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          !Sub 'hstr-${EnvironmentShortName}-pol-agw-cwa-log'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            - logs:FilterLogEvents
+            Resource: "*"
+  ApiLoggingAccount:
+    Type: AWS::ApiGateway::Account
+    DependsOn:
+    - CustomIdentityProviderApi
+    Properties:
+      CloudWatchRoleArn:
+        Fn::GetAtt: ApiCloudWatchLogsRole.Arn
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId:
+        Ref: ApiDeployment
+      MethodSettings:
+      - DataTraceEnabled: false
+        HttpMethod: "*"
+        LoggingLevel: INFO
+        ResourcePath: "/*"
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      StageName: 
+        !Sub 'hstr-${EnvironmentShortName}-agw-stage'
+  ApiDeployment:
+    DependsOn:
+    - GetUserConfigRequest
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      StageName: 
+        !Sub 'hstr-${EnvironmentShortName}-agw-deploy-stage'
+  TransferIdentityProviderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        !Sub 'hstr-${EnvironmentShortName}-rol-ftp-provider'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: transfer.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          !Sub 'hstr-${EnvironmentShortName}-pol-ftp-execute-api-invoke'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - execute-api:Invoke
+            Resource:
+              !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${CustomIdentityProviderApi}/prod/GET/*
+      - PolicyName: 
+          !Sub 'hstr-${EnvironmentShortName}-pol-agw-cwa-log'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - apigateway:GET
+            Resource: "*"
+  ServersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      ParentId:
+        Fn::GetAtt:
+        - CustomIdentityProviderApi
+        - RootResourceId
+      PathPart: servers
+  ServerIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      ParentId:
+        Ref: ServersResource
+      PathPart: "{serverId}"
+  UsersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      ParentId:
+        Ref: ServerIdResource
+      PathPart: users
+  UserNameResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      ParentId:
+        Ref: UsersResource
+      PathPart: "{username}"
+  GetUserConfigResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      ParentId:
+        Ref: UserNameResource
+      PathPart: config
+  GetUserConfigRequest:
+    Type: AWS::ApiGateway::Method
+    DependsOn: GetUserConfigResponseModel
+    Properties:
+      OperationName:
+        !Sub 'hstr-${EnvironmentShortName}-agw-method-get-user'
+      AuthorizationType: AWS_IAM
+      HttpMethod: GET
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Join:
+          - ''
+          - - 'arn:aws:apigateway:'
+            - Ref: AWS::Region
+            - ":lambda:path/2015-03-31/functions/"
+            - Fn::GetAtt:
+              - GetUserConfigLambda
+              - Arn
+            - "/invocations"
+        IntegrationResponses:
+        - StatusCode: 200
+        RequestTemplates:
+          application/json: |
+            {
+              "username": "$input.params('username')",
+              "password": "$util.escapeJavaScript($input.params('Password')).replaceAll("\\'","'")",
+              "serverId": "$input.params('serverId')"
+            }
+      RequestParameters:
+        method.request.header.Password: false
+      ResourceId:
+        Ref: GetUserConfigResource
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: GetUserConfigResponseModel
+  GetUserConfigResponseModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      RestApiId:
+        Ref: CustomIdentityProviderApi
+      ContentType: application/json
+      Description: API response for GetUserConfig
+      Name: GetUserConfigResponseModel
+      Schema:
+        "$schema": http://json-schema.org/draft-04/schema#
+        title: 
+          !Sub 'hstr-${EnvironmentShortName}-agw-model-get-user-response'
+        type: object
+        properties:
+          HomeDirectory:
+            type: string
+          Role:
+            type: string
+          Policy:
+            type: string
+          PublicKeys:
+            type: array
+            items:
+              type: string
+  GetUserConfigLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      FunctionName:
+        Fn::GetAtt: GetUserConfigLambda.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+        - ''
+        - - 'arn:aws:execute-api:'
+          - Ref: AWS::Region
+          - ":"
+          - Ref: AWS::AccountId
+          - ":"
+          - Ref: CustomIdentityProviderApi
+          - "/*"
+  GetUserConfigLambda:
+Outputs:
+  ServerId:
+    Value:
+      Fn::GetAtt: TransferServer.ServerId
+    Condition: CreateServer
+  StackArn:
+    Value:
+      Ref: AWS::StackId
+  TransferIdentityProviderUrl:
+    Description: URL to pass to AWS Transfer CreateServer call as part of optional IdentityProviderDetails
+    Value:
+      Fn::Join:
+      - ''
+      - - https://
+        - Ref: CustomIdentityProviderApi
+        - .execute-api.
+        - Ref: AWS::Region
+        - .amazonaws.com/
+        - Ref: ApiStage
+    Condition: NotCreateServer
+  TransferIdentityProviderInvocationRole:
+    Description: IAM Role to pass to AWS Transfer CreateServer call as part of optional IdentityProviderDetails
+    Value:
+      Fn::GetAtt: TransferIdentityProviderRole.Arn
+    Condition: NotCreateServer

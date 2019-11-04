@@ -1,0 +1,41 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  ResourceNameGeneratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 
+        !Sub 'hst-all-gbl-iam-rol-resource-name-generator'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: ''
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: AccessAll
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: '1'
+            Effect: Allow
+            Action:
+            - '*'
+            Resource: "*"
+  ResourceNameGeneratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: resource-name-generator.generate_name
+      Role: !GetAtt ResourceNameGeneratorRole.Arn
+      Code: src/
+      Runtime: python3.6
+      Timeout: '300'
+
+Outputs:
+  ResourceNameGeneratorFunctionArn:
+    Value: !GetAtt ResourceNameGeneratorFunction.Arn
+    Export:
+      Name: ResourceNameGeneratorFunctionArn

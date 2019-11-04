@@ -1,0 +1,47 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "---"
+Parameters:
+  BaseName:
+    Type: String
+  VpcId:
+    Type: String
+  AvailabilityZone:
+    Type: String
+  Accessibility:
+    Type: String
+    Default: Public
+    AllowedValues:
+      - Public
+      - Private
+  RootCidr:
+    Type: String
+    Default: '10.10'
+  IpClassC:
+    Type: Number
+Mappings:
+  MapAccessibility:
+    Public:
+      Value: true
+      ShortName: pub
+    Private:
+      Value: false
+      ShortName: pvt
+Resources:
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub '${AWS::Region}${AvailabilityZone}'
+      VpcId: !Ref VpcId
+      MapPublicIpOnLaunch: !FindInMap [MapAccessibility, !Ref Accessibility, Value]
+      CidrBlock: !Sub
+        - '${RootCidr}.${IpClassC}.0/24'
+        - { RootCidr: !Ref RootCidr, IpClassC: !Ref IpClassC }
+      Tags:
+      - Key: Name
+        Value: !Sub
+          - '${BaseName}-vpc-sub-az${AvailabilityZoneName}-${AccessibilityShortName}'
+          - { BaseName: !Ref BaseName, AvailabilityZoneName: !Ref AvailabilityZone, AccessibilityShortName: !FindInMap [MapAccessibility, !Ref Accessibility, ShortName] }
+Outputs:
+  SubnetReference:
+    Value: !Ref Subnet

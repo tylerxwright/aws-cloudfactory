@@ -1,0 +1,19 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Runs a quick test
+Resources:
+  BaseName:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "../templates/gen-any-gbl-cfn-stk-naming.template"
+      Parameters: 
+        Owner: Healthstar
+        Application: agg
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Test Group
+      GroupName: !Sub
+        - "hello-${Name}-world"
+        - { Name: !GetAtt BaseName.Outputs.BaseName }
+

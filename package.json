@@ -1,0 +1,36 @@
+{
+  "name": "aws-core",
+  "version": "1.0.0",
+  "description": "Core AWS Cloudformation templates",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/healthstarconnectsllc/aws-core.git"
+  },
+  "author": "Tyler Wright",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/healthstarconnectsllc/aws-core/issues"
+  },
+  "homepage": "https://github.com/healthstarconnectsllc/aws-core#readme",
+  "dependencies": {
+    "gulp": "^4.0.2",
+    "gulp-debug": "^4.0.0",
+    "gulp-exec": "^4.0.0",
+    "gulp-flatten": "^0.4.0",
+    "gulp-tap": "^2.0.0",
+    "gulp-using": "^0.1.1",
+    "require-dir": "^1.2.0",
+    "through2": "^3.0.1"
+  },
+  "devDependencies": {
+    "gulp-clean": "^0.4.0",
+    "yargs": "^14.2.0"
+  }
+}

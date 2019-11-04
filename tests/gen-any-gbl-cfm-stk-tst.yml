@@ -1,0 +1,19 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Runs a quick test
+Resources:
+  CustomName:
+    Type: Custom::Name
+    Properties:
+      ServiceToken: !ImportValue HealthstarNamingFunctionArn
+    Input
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Test Group
+      GroupName: !GetAtt 
+        - CustomName
+        - Message
+Outputs:
+  SecurityGrouId:
+    Value: !Ref SecurityGroup
